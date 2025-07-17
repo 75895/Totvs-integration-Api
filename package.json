@@ -1,0 +1,166 @@
+package.json
+{
+  "name": "totvs-integration-api",
+  "version": "1.0.0",
+  "description": "API de integração com o Text POS da TOTVS",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.10.0"
+  }
+}
+
+env.example
+PORT=3000
+APP_USER=admin
+APP_PASS=123456
+JWT_SECRET=secrettoken
+
+DB_HOST=db
+DB_USER=root
+DB_PASS=root
+DB_NAME=hotel_db
+DB_PORT=3306
+
+Dockerfile
+FROM node:18
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm install
+
+COPY . .
+
+EXPOSE 3000
+
+CMD ["npm", "start"]
+
+docker-compose.yml
+version: "3.8"
+
+services:
+  api:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file: .env
+    depends_on:
+      - db
+
+  db:
+    image: mysql:8
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: hotel_db
+    ports:
+      - "3306:3306"
+
+middlewares/authMiddleware.js
+
+const jwt = require('jsonwebtoken');
+
+module.exports = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Token não informado' });
+
+  const token = authHeader.split(' ')[1];
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) return res.status(403).json({ error: 'Token inválido' });
+    req.user = decoded;
+    next();
+  });
+};
+
+routes/hospedes.js
+
+const express = require('express');
+const router = express.Router();
+const mysql = require('mysql2/promise');
+
+router.get('/', async (req, res) => {
+  const { idhospede, cpf, phone } = req.query;
+  try {
+    const conn = await mysql.createConnection({
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASS,
+      database: process.env.DB_NAME,
+      port: process.env.DB_PORT
+    });
+
+    const [rows] = await conn.execute(
+      'SELECT * FROM hospedes WHERE id = ? OR cpf = ? OR telefone = ?',
+      [idhospede, cpf, phone]
+    );
+
+    await conn.end();
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar hóspede', detalhes: err.message });
+  }
+});
+
+module.exports = router;
+
+routes/reservas.js
+
+const express = require('express');
+const router = express.Router();
+const mysql = require('mysql2/promise');
+
+router.get('/', async (req, res) => {
+  const { idhotel, pagina = 1, por_pagina = 100, lastupdate } = req.query;
+  try {
+    const conn = await mysql.createConnection({
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASS,
+      database: process.env.DB_NAME,
+      port: process.env.DB_PORT
+    });
+
+    const [rows] = await conn.execute(
+      `SELECT * FROM reservas WHERE idhotel = ? AND updated_at >= ? LIMIT ?, ?`,
+      [idhotel, lastupdate, (pagina - 1) * por_pagina, parseInt(por_pagina)]
+    );
+
+    await conn.end();
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar reservas', detalhes: err.message });
+  }
+});
+
+module.exports = router;
+
+README.md
+# TOTVS Integration API
+
+API RESTful para integração com o Text POS da TOTVS  
+Desenvolvida em **Node.js + Express**, com autenticação **JWT** e integração ao banco **MySQL**  
+
+## 🛠️ Funcionalidades:
+- 🔹 Buscar Dados do Hóspede: `GET /buscadadoshospedes`
+- 🔹 Buscar Reservas Detalhadas: `GET /reservas_detalhadas`
+- 🔹 Autenticação com Token JWT: `POST /login`
+- 🔹 API documentada no Postman Collection
+- 🔹 Deploy via Docker e Docker Compose
+
+---
+
+## 🚀 Como Rodar
+
+### 1️⃣ Clone o repositório
+```bash
+git clone https://github.com/75895/Totvs-integration-Api.git
